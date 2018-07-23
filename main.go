@@ -8,12 +8,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 )
 
 const owlURL = "https://owlbot.info/api/v2/dictionary/%s"
 
-// Definition is used to demarshall owlbot responses
+// Definition is used to unmarshal owlbot responses
 type Definition struct {
 	Type       string `json:"type,omitempty"`
 	Definition string `json:"definition,omitempty"`
@@ -39,32 +40,49 @@ func lookupWord(word string, results *map[string]string, wg *sync.WaitGroup, que
 		log.Fatal(err)
 	}
 	json.Unmarshal(body, &definitions)
-	(*results)[word] = ""
-	if len(definitions) > 0 {
-		for _, def := range definitions {
-			(*results)[word] += def.Definition + "|||"
+	// Insert the empty string if no def found
+	if len(definitions) < 1 {
+		(*results)[word] = ""
+	} else {
+		// Insert a ||| delimited string for one or more def
+		defs := make([]string, len(definitions))
+		for i, def := range definitions {
+			defs[i] = def.Definition
 		}
+		(*results)[word] = strings.Join(defs, "|||")
 	}
 }
 
+func getKeys(fromMap *map[string]string) *[]string {
+	// Preallocate keys slice
+	keys := make([]string, len(*fromMap))
+	// Extract each key
+	i := 0
+	for k := range *fromMap {
+		keys[i] = k
+		i++
+	}
+	return &keys
+}
+
 func main() {
+	// Prepare to read from stdin
 	scanner := bufio.NewScanner(os.Stdin)
 	dict := make(map[string]string)
-	var words []string
 	var wg sync.WaitGroup
 	// lets us throttle requests
 	queue := make(chan int, 50)
 	for scanner.Scan() {
 		wg.Add(1)
 		w := scanner.Text()
-		words = append(words, w)
 		go lookupWord(w, &dict, &wg, queue)
 	}
 	if scanner.Err() != nil {
 		log.Fatal(scanner.Err())
 	}
 	wg.Wait()
-	for _, word := range words {
+	words := getKeys(&dict)
+	for _, word := range *words {
 		fmt.Printf("%s: %s\n", word, dict[word])
 	}
 }
